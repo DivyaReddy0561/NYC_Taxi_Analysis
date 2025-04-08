@@ -142,9 +142,8 @@ dt_model.fit(X_train, y_train)
 dt_r2 = r2_score(y_test, dt_model.predict(X_test))
 
 # Random Forest (less depth, more leaves, fewer trees)
-rf_model = RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42)
-rf_model.fit(X_train, y_train)
-rf_r2 = r2_score(y_test, rf_model.predict(X_test))
+rf_model = RandomForestRegressor(n_estimators=50, max_depth=5, min_samples_leaf=10, random_state=42)
+
 
 # Gradient Boosting (smaller trees, more regularization)
 gb_model = GradientBoostingRegressor(
