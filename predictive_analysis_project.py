@@ -132,25 +132,22 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_
 # Train & Evaluate Regression Models
 
 # Linear Regression
-linear_model = LinearRegression()
-linear_model.fit(X_train, y_train)
-y_pred_linear = linear_model.predict(X_test)
-print("Linear Regression R^2:", r2_score(y_test, y_pred_linear))
+lr_model = LinearRegression()
+lr_model.fit(X_train, y_train)
+lr_r2 = r2_score(y_test, lr_model.predict(X_test))
 
-# Decision Tree Regressor
-tree_model = DecisionTreeRegressor(random_state=42)
-tree_model.fit(X_train, y_train)
-y_pred_tree = tree_model.predict(X_test)
-print("Decision Tree R^2:", r2_score(y_test, y_pred_tree))
+# Decision Tree with regularization
+dt_model = DecisionTreeRegressor(max_depth=5, min_samples_leaf=4, random_state=42)
+dt_model.fit(X_train, y_train)
+dt_r2 = r2_score(y_test, dt_model.predict(X_test))
 
-# Random Forest Regressor
-forest_model = RandomForestRegressor(n_estimators=100, random_state=42)
-forest_model.fit(X_train, y_train)
-y_pred_forest = forest_model.predict(X_test)
-print("Random Forest R^2:", r2_score(y_test, y_pred_forest))
+# Random Forest with reduced depth
+rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=4, random_state=42)
+rf_model.fit(X_train, y_train)
+rf_r2 = r2_score(y_test, rf_model.predict(X_test))
 
-# Gradient Boosting Regressor
-gb_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
+# Gradient Boosting with tuned params
+gb_model = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=3,
+                                     min_samples_leaf=4, subsample=0.8, random_state=42)
 gb_model.fit(X_train, y_train)
-y_pred_gb = gb_model.predict(X_test)
-print("Gradient Boosting R^2:", r2_score(y_test, y_pred_gb))
+gb_r2 = r2_score(y_test, gb_model.predict(X_test))
