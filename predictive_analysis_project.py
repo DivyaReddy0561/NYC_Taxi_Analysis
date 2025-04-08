@@ -131,23 +131,44 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_
 
 # Train & Evaluate Regression Models
 
-# Linear Regression
+# Linear Regression (same as before)
 lr_model = LinearRegression()
 lr_model.fit(X_train, y_train)
 lr_r2 = r2_score(y_test, lr_model.predict(X_test))
 
-# Decision Tree with regularization
-dt_model = DecisionTreeRegressor(max_depth=5, min_samples_leaf=4, random_state=42)
+# Decision Tree (more restricted)
+dt_model = DecisionTreeRegressor(max_depth=4, min_samples_leaf=10, random_state=42)
 dt_model.fit(X_train, y_train)
 dt_r2 = r2_score(y_test, dt_model.predict(X_test))
 
-# Random Forest with reduced depth
-rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=4, random_state=42)
+# Random Forest (less depth, more leaves, fewer trees)
+rf_model = RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42)
 rf_model.fit(X_train, y_train)
 rf_r2 = r2_score(y_test, rf_model.predict(X_test))
 
-# Gradient Boosting with tuned params
-gb_model = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=3,
-                                     min_samples_leaf=4, subsample=0.8, random_state=42)
+# Gradient Boosting (smaller trees, more regularization)
+gb_model = GradientBoostingRegressor(
+    n_estimators=100,
+    learning_rate=0.03,
+    max_depth=3,
+    min_samples_leaf=10,
+    subsample=0.7,
+    random_state=42
+)
 gb_model.fit(X_train, y_train)
 gb_r2 = r2_score(y_test, gb_model.predict(X_test))
+
+# Example: Making predictions on the test set
+predictions_lr = linear_model.predict(X_test) # Changed lr to linear_model
+predictions_dt = tree_model.predict(X_test)   # Changed dt to tree_model
+predictions_rf = forest_model.predict(X_test) # Changed rf to forest_model
+predictions_gb = gb_model.predict(X_test)   # Changed gb to gb_model
+
+# Show the first 5 predictions vs actual
+print("\nSample Predictions (first 5 rows):")
+for i in range(5):
+    print(f"Actual: {y_test.iloc[i]:.2f} | "
+          f"LR: {predictions_lr[i]:.2f} | "
+          f"DT: {predictions_dt[i]:.2f} | "
+          f"RF: {predictions_rf[i]:.2f} | "
+          f"GB: {predictions_gb[i]:.2f}")
