@@ -118,8 +118,14 @@ leaky_cols = [
     'lpep_dropoff_datetime'
 ]
 
-X = data_encoded.drop(columns=leaky_cols, errors='ignore')
+# Drop features that directly sum into total_amount (to prevent data leakage)
+leakage_features = ['total_amount', 'fare_amount', 'extra', 'mta_tax',
+                    'tip_amount', 'tolls_amount', 'improvement_surcharge',
+                    'congestion_surcharge', 'lpep_pickup_datetime', 'lpep_dropoff_datetime']
+
+X = data_encoded.drop(columns=leakage_features)
 y = data_encoded['total_amount']
+
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
