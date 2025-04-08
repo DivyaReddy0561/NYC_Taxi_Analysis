@@ -1,107 +1,187 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import r2_score
 from scipy.stats import f_oneway, chi2_contingency
 
-df = pd.read_parquet("green_tripdata_2020-01.parquet")
+# Streamlit page config
+st.set_page_config(page_title="NYC Taxi Analysis", layout="wide")
+st.title("NYC Green Taxi Trip Data Analysis & ML Modeling")
 
-df.drop("ehail_fee", axis=1, inplace=True, errors='ignore')
-df["lpep_pickup_datetime"] = pd.to_datetime(df["lpep_pickup_datetime"])
-df["lpep_dropoff_datetime"] = pd.to_datetime(df["lpep_dropoff_datetime"])
-df["trip_duration"] = (df["lpep_dropoff_datetime"] - df["lpep_pickup_datetime"]).dt.total_seconds() / 60
-df["weekday"] = df["lpep_dropoff_datetime"].dt.dayofweek
-df["hour"] = df["lpep_dropoff_datetime"].dt.hour
-df = df[df["trip_duration"].between(1, 120)]
+# Upload file
+uploaded_file = st.file_uploader("Upload a dataset (Parquet or CSV)", type=["parquet", "csv"])
 
-for col in ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']:
-    if col in df.columns:
-        df[col].fillna(df[col].mode()[0], inplace=True)
+if uploaded_file is not None:
+    if uploaded_file.name.endswith(".parquet"):
+        df = pd.read_parquet(uploaded_file)
+    else:
+        df = pd.read_csv(uploaded_file)
 
-num_cols = df.select_dtypes(include=np.number).columns
-for col in num_cols:
-    df[col].fillna(df[col].median(), inplace=True)
+    st.subheader("Raw Data Sample")
+    st.dataframe(df.head())
 
-encode_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'PULocationID', 'DOLocationID']
-for col in encode_cols:
-    if col in df.columns:
-        df[col] = LabelEncoder().fit_transform(df[col])
+    # Drop unnecessary columns
+    if "ehail_fee" in df.columns:
+        df.drop("ehail_fee", axis=1, inplace=True)
 
-df['payment_type'].value_counts().plot.pie(autopct='%1.1f%%')
-plt.title('Payment Type Distribution')
-plt.show()
+    # Feature Engineering
+    df["lpep_pickup_datetime"] = pd.to_datetime(df["lpep_pickup_datetime"])
+    df["lpep_dropoff_datetime"] = pd.to_datetime(df["lpep_dropoff_datetime"])
+    df["trip_duration"] = (df["lpep_dropoff_datetime"] - df["lpep_pickup_datetime"]).dt.total_seconds() / 60
+    df["weekday"] = df["lpep_pickup_datetime"].dt.day_name()
+    df["hour"] = df["lpep_pickup_datetime"].dt.hour
+    df = df[df["trip_duration"].between(1, 120)]
 
-df['trip_type'].value_counts().plot.pie(autopct='%1.1f%%')
-plt.title('Trip Type Distribution')
-plt.show()
+    # Handle missing values
+    cat_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
+    for col in cat_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(df[col].mode()[0])
+    
+    num_cols = df.select_dtypes(include=np.number).columns
+    for col in num_cols:
+        df[col] = df[col].fillna(df[col].median())
 
-df.groupby('weekday')['total_amount'].mean().plot(kind='bar', title='Average Total Amount by Weekday')
-plt.show()
+    # Encode Categorical
+    encoder_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'PULocationID', 'DOLocationID']
+    for col in encoder_cols:
+        if col in df.columns:
+            df[col] = LabelEncoder().fit_transform(df[col].astype(str))
 
-df.groupby('payment_type')['total_amount'].mean().plot(kind='bar', title='Average Total Amount by Payment Type')
-plt.show()
+    st.subheader("Processed Data Sample")
+    st.dataframe(df.head())
 
-df.groupby('weekday')['tip_amount'].mean().plot(kind='bar', title='Average Tip Amount by Weekday')
-plt.show()
+    # Visualizations (g)
+    st.subheader("Pie Charts")
+    if 'payment_type' in df.columns:
+        fig1, ax1 = plt.subplots()
+        df['payment_type'].value_counts().plot.pie(autopct='%1.1f%%', ax=ax1)
+        ax1.set_ylabel("")
+        ax1.set_title("Payment Type Distribution")
+        st.pyplot(fig1)
 
-df.groupby('payment_type')['tip_amount'].mean().plot(kind='bar', title='Average Tip Amount by Payment Type')
-plt.show()
+    if 'trip_type' in df.columns:
+        fig2, ax2 = plt.subplots()
+        df['trip_type'].value_counts().plot.pie(autopct='%1.1f%%', ax=ax2)
+        ax2.set_ylabel("")
+        ax2.set_title("Trip Type Distribution")
+        st.pyplot(fig2)
 
-trip_type_groups = [group["total_amount"] for name, group in df.groupby("trip_type")]
-f_val, p_val = f_oneway(*trip_type_groups)
-print(f"ANOVA - Total Amount by Trip Type: F-value = {f_val:.4f}, P-value = {p_val:.4f}")
+    # Groupby analysis (h–k)
+    st.subheader("Groupby Analysis")
 
-weekday_groups = [group["total_amount"] for name, group in df.groupby("weekday")]
-f_val2, p_val2 = f_oneway(*weekday_groups)
-print(f"ANOVA - Total Amount by Weekday: F-value = {f_val2:.4f}, P-value = {p_val2:.4f}")
+    st.write("Average Total Amount by Weekday")
+    st.dataframe(df.groupby("weekday")["total_amount"].mean().reset_index())
 
-contingency = pd.crosstab(df["trip_type"], df["payment_type"])
-chi2, p_chi, _, _ = chi2_contingency(contingency)
-print(f"Chi-Square Test - Trip Type vs Payment Type: Chi2 = {chi2:.4f}, P-value = {p_chi:.4f}")
+    st.write("Average Total Amount by Payment Type")
+    st.dataframe(df.groupby("payment_type")["total_amount"].mean().reset_index())
 
-numeric_cols = ['trip_distance', 'fare_amount', 'extra', 'mta_tax', 'tip_amount',
-                'tolls_amount', 'improvement_surcharge', 'trip_duration',
-                'passenger_count', 'congestion_surcharge', 'total_amount']
-corr = df[numeric_cols].corr()
-sns.heatmap(corr, annot=True, cmap="coolwarm")
-plt.title("Correlation Heatmap")
-plt.show()
+    st.write("Average Tip Amount by Weekday")
+    st.dataframe(df.groupby("weekday")["tip_amount"].mean().reset_index())
 
-fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-sns.histplot(df["total_amount"], bins=40, ax=ax[0])
-sns.boxplot(x=df["total_amount"], ax=ax[1])
-sns.kdeplot(df["total_amount"], ax=ax[2])
-ax[0].set_title("Histogram")
-ax[1].set_title("Boxplot")
-ax[2].set_title("KDE Curve")
-plt.tight_layout()
-plt.show()
+    st.write("Average Tip Amount by Payment Type")
+    st.dataframe(df.groupby("payment_type")["tip_amount"].mean().reset_index())
 
-features = ['passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
-            'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
-            'tip_amount', 'tolls_amount', 'improvement_surcharge',
-            'trip_type', 'weekday', 'hour']
+    # Hypothesis Testing (l–n)
+    st.subheader("Hypothesis Testing")
 
-X = df[features]
-y = df["total_amount"]
+    # l) ANOVA - average total_amount by trip_type
+    try:
+        anova1 = f_oneway(*[group["total_amount"].values for name, group in df.groupby("trip_type")])
+        st.write(f"ANOVA (total_amount ~ trip_type) p-value: {anova1.pvalue:.4f}")
+    except:
+        st.warning("ANOVA test failed for trip_type")
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+    # m) ANOVA - average total_amount by weekday
+    try:
+        anova2 = f_oneway(*[group["total_amount"].values for name, group in df.groupby("weekday")])
+        st.write(f"ANOVA (total_amount ~ weekday) p-value: {anova2.pvalue:.4f}")
+    except:
+        st.warning("ANOVA test failed for weekday")
 
-models = {
-    "Linear Regression": LinearRegression(),
-    "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
-    "Random Forest": RandomForestRegressor(n_estimators=100, max_depth=6, min_samples_leaf=10, random_state=42),
-    "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=4, random_state=42)
-}
+    # n) Chi-square test - trip_type vs payment_type
+    if "trip_type" in df.columns and "payment_type" in df.columns:
+        chi2_data = pd.crosstab(df['trip_type'], df['payment_type'])
+        chi2_stat, p, dof, _ = chi2_contingency(chi2_data)
+        st.write(f"Chi-square Test (trip_type vs payment_type) p-value: {p:.4f}")
 
-for name, model in models.items():
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    r2 = r2_score(y_test, y_pred)
-    print(f"{name}: R² Score = {r2:.4f}")
+    # o) Numeric variables
+    st.subheader("Correlation Heatmap of Numeric Variables")
+    numeric_vars = ['trip_distance', 'fare_amount', 'extra', 'mta_tax', 'tip_amount',
+                    'tolls_amount', 'improvement_surcharge', 'trip_duration', 'passenger_count']
+    if 'congestion_surcharge' in df.columns:
+        numeric_vars.append('congestion_surcharge')
+    
+    corr = df[numeric_vars].corr()
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
+    st.pyplot(fig)
+
+    # p) Object variables
+    st.subheader("Object Variables")
+    st.write(['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'weekday', 'hour'])
+
+    # q) Dummy encode
+    df_encoded = pd.get_dummies(df, columns=['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'weekday'], drop_first=True)
+
+    # r) Histogram, Boxplot, Density for total_amount
+    st.subheader("Target Variable: total_amount")
+
+    fig, axs = plt.subplots(1, 3, figsize=(18, 4))
+    sns.histplot(df['total_amount'], bins=40, ax=axs[0])
+    axs[0].set_title("Histogram")
+
+    sns.boxplot(x=df['total_amount'], ax=axs[1])
+    axs[1].set_title("Boxplot")
+
+    sns.kdeplot(df['total_amount'], ax=axs[2])
+    axs[2].set_title("Density Plot")
+
+    st.pyplot(fig)
+
+    # s) Regression Models (final)
+    st.subheader("Regression Models for Predicting total_amount")
+
+    model_features = ['passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
+                      'fare_amount', 'extra', 'mta_tax', 'tip_amount', 'tolls_amount',
+                      'improvement_surcharge', 'trip_duration', 'hour']
+
+    X = df_encoded[model_features]
+    y = df_encoded['total_amount']
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+
+    models = {
+        "Multiple Linear Regression": LinearRegression(),
+        "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
+        "Random Forest (100 trees)": RandomForestRegressor(n_estimators=100, max_depth=6, min_samples_leaf=10, random_state=42),
+        "Gradient Boosting (100 trees)": GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=4, random_state=42)
+    }
+
+    results = {}
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        score = r2_score(y_test, preds)
+        results[name] = score
+        st.write(f"{name} - R² Score: **{score:.4f}**")
+
+    st.subheader("Sample Predictions (Top 5 rows)")
+    sample_df = X_test.iloc[:5].copy()
+    sample_preds = {
+        "Actual": y_test.iloc[:5].values
+    }
+    for name, model in models.items():
+        sample_preds[name] = model.predict(sample_df)
+
+    st.dataframe(pd.DataFrame(sample_preds))
+
+else:
+    st.info("📁 Please upload a Parquet or CSV file to begin.")
