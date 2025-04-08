@@ -1,115 +1,101 @@
-# streamlit_app.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import r2_score
 
-# Configure page
-st.set_page_config(page_title="NYC Taxi Analysis", layout="wide")
-st.title("🚖 NYC Green Taxi Trip Duration Prediction")
+# ---------- MODEL UTILS ----------
 
-uploaded_file = st.file_uploader("Upload NYC Green Taxi dataset (.parquet or .csv)", type=["parquet", "csv"])
+def get_models():
+    return {
+        "Linear Regression": LinearRegression(),
+        "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
+        "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
+        "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
+    }
 
-if uploaded_file is not None:
-    if uploaded_file.name.endswith('.parquet'):
-        df = pd.read_parquet(uploaded_file)
+def train_and_evaluate_models(X_train, X_test, y_train, y_test):
+    models = get_models()
+    results = {}
+    trained_models = {}
+
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        r2 = r2_score(y_test, y_pred)
+        results[name] = r2
+        trained_models[name] = model
+
+    return results, trained_models
+
+# ---------- STREAMLIT APP ----------
+
+st.set_page_config(page_title="NYC Taxi Fare Prediction", layout="wide")
+st.title("🚕 NYC Taxi Fare Prediction App")
+
+# Define Features
+features = [
+    'passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
+    'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
+    'tip_amount', 'tolls_amount', 'improvement_surcharge',
+    'trip_type', 'weekday', 'hour'
+]
+
+# Create dummy training data (simulate 1000 rows)
+np.random.seed(42)
+dummy_data = pd.DataFrame({
+    'passenger_count': np.random.randint(1, 6, 1000),
+    'trip_distance': np.random.uniform(0.5, 10, 1000),
+    'PULocationID': np.random.randint(1, 200, 1000),
+    'DOLocationID': np.random.randint(1, 200, 1000),
+    'RatecodeID': np.random.randint(1, 6, 1000),
+    'payment_type': np.random.randint(1, 5, 1000),
+    'fare_amount': np.random.uniform(5, 50, 1000),
+    'extra': np.random.uniform(0, 5, 1000),
+    'mta_tax': np.random.uniform(0, 0.5, 1000),
+    'tip_amount': np.random.uniform(0, 10, 1000),
+    'tolls_amount': np.random.uniform(0, 10, 1000),
+    'improvement_surcharge': np.random.uniform(0, 1, 1000),
+    'trip_type': np.random.randint(1, 3, 1000),
+    'weekday': np.random.randint(0, 7, 1000),
+    'hour': np.random.randint(0, 24, 1000),
+})
+
+# Simulate target variable
+dummy_data['total_amount'] = (
+    dummy_data['fare_amount'] + dummy_data['extra'] + dummy_data['mta_tax'] +
+    dummy_data['tip_amount'] + dummy_data['tolls_amount'] + dummy_data['improvement_surcharge']
+)
+
+X = dummy_data[features]
+y = dummy_data['total_amount']
+
+# Split and train
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+results, trained_models = train_and_evaluate_models(X_train, X_test, y_train, y_test)
+
+# ---------- MODEL SELECTION ----------
+st.subheader("📈 Model Selection & Performance")
+selected_model_name = st.selectbox("Select a model for prediction", list(trained_models.keys()))
+selected_model = trained_models[selected_model_name]
+st.markdown(f"*R² Score* for {selected_model_name}: {results[selected_model_name]:.3f}")
+
+# ---------- USER INPUT ----------
+st.subheader("🔢 Input Ride Details")
+
+user_input = {}
+for col in features:
+    if col in ['passenger_count', 'PULocationID', 'DOLocationID', 'RatecodeID', 'payment_type', 'trip_type', 'weekday', 'hour']:
+        val = st.number_input(f"{col}", min_value=0, value=int(X[col].median()), step=1)
     else:
-        df = pd.read_csv(uploaded_file)
+        val = st.number_input(f"{col}", value=float(round(X[col].median(), 2)))
+    user_input[col] = val
 
-    st.subheader("🔍 Raw Data Sample")
-    st.dataframe(df.head())
-
-    # Drop unwanted columns
-    if 'ehail_fee' in df.columns:
-        df.drop("ehail_fee", axis=1, inplace=True)
-
-    # Feature Engineering
-    df["lpep_dropoff_datetime"] = pd.to_datetime(df["lpep_dropoff_datetime"])
-    df["lpep_pickup_datetime"] = pd.to_datetime(df["lpep_pickup_datetime"])
-    df["trip_duration"] = (df["lpep_dropoff_datetime"] - df["lpep_pickup_datetime"]).dt.total_seconds() / 60
-    df = df[df["trip_duration"].between(1, 120)]
-
-    df["weekday"] = df["lpep_dropoff_datetime"].dt.dayofweek
-    df["hour"] = df["lpep_dropoff_datetime"].dt.hour
-
-    # Handle missing values
-    cat_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
-    for col in cat_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna(df[col].mode()[0])
-
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Encode categoricals
-    encode_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'PULocationID', 'DOLocationID']
-    for col in encode_cols:
-        if col in df.columns:
-            df[col] = LabelEncoder().fit_transform(df[col])
-
-    st.subheader("🛠️ Processed Data Sample")
-    st.dataframe(df.head())
-
-    # Features for modeling
-    features = ['passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
-                'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
-                'tip_amount', 'tolls_amount', 'improvement_surcharge',
-                'trip_type', 'weekday', 'hour']
-
-    if not set(features).issubset(df.columns):
-        st.error("⚠️ Dataset missing required features.")
-    else:
-        X = df[features]
-        y = df['trip_duration']
-
-        # Train-test split
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-
-        # Initialize models
-        models = {
-            "Linear Regression": LinearRegression(),
-            "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
-            "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
-            "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
-        }
-
-        # Train and evaluate
-        st.subheader("📈 Model Performance (R² Scores)")
-        model_scores = {}
-        trained_models = {}
-
-        for name, model in models.items():
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
-            score = r2_score(y_test, preds)
-            model_scores[name] = score
-            trained_models[name] = model
-            st.write(f"**{name}** R² score: `{score:.3f}`")
-
-        # Select model
-        st.subheader("🤖 Select Model for Prediction")
-        selected_model_name = st.selectbox("Choose model", list(trained_models.keys()))
-        selected_model = trained_models[selected_model_name]
-        st.markdown(f"**Selected Model R² Score:** `{model_scores[selected_model_name]:.3f}`")
-
-        # Input form
-        st.subheader("✏️ Enter Ride Details to Predict Trip Duration")
-        user_input = {}
-        for col in features:
-            if col in ['passenger_count', 'PULocationID', 'DOLocationID', 'RatecodeID', 'payment_type', 'trip_type', 'weekday', 'hour']:
-                val = st.number_input(f"{col}", min_value=0, value=int(X[col].median()), step=1)
-            else:
-                val = st.number_input(f"{col}", value=float(round(X[col].median(), 2)))
-            user_input[col] = val
-
-        if st.button("📍 Predict Trip Duration"):
-            input_df = pd.DataFrame([user_input])
-            predicted_duration = selected_model.predict(input_df)[0]
-            st.success(f"⏱️ Estimated Trip Duration: **{predicted_duration:.2f} minutes**")
+# ---------- PREDICT ----------
+if st.button("Predict Total Fare"):
+    input_df = pd.DataFrame([user_input])
+    prediction = selected_model.predict(input_df)[0]
+    st.success(f"🎯 Predicted Total Fare Amount: *${prediction:.2f}*")
