@@ -1,15 +1,27 @@
 import numpy as np
+import pandas as pd
+import streamlit as st
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import r2_score
-import streamlit as st
+
+# Dummy data generation
+dummy_data = pd.DataFrame({
+    'passenger_count': np.random.randint(1, 5, size=100),
+    'trip_distance': np.random.uniform(1, 10, size=100),
+    'fare_amount': np.random.uniform(5, 50, size=100),
+    'trip_duration': np.random.uniform(5, 60, size=100)
+})
 
 # Add slight noise to simulate real-world variation
 dummy_data['trip_duration'] = dummy_data['trip_duration'] + np.random.normal(loc=0, scale=5, size=len(dummy_data))
 
-# Feature selection (assuming features are defined)
+# Define feature columns
+features = ['passenger_count', 'trip_distance', 'fare_amount']
+
+# Feature selection
 X = dummy_data[features]
 y = dummy_data['trip_duration']
 
