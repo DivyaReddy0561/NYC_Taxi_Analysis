@@ -1,183 +1,111 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import ttest_ind, f_oneway, chi2_contingency
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score
 from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import r2_score
 
-# Page setup
-st.set_page_config(page_title="NYC Green Taxi Analysis", layout="wide")
-st.title("🗽 NYC Green Taxi Trip Analysis and Fare Prediction")
+# ---------- MODEL UTILS (Encapsulated) ----------
 
-# Upload file
-uploaded_file = st.file_uploader("📂 Upload NYC Green Taxi Trip Data (Parquet format)", type="parquet")
+def get_models():
+    return {
+        "Linear Regression": LinearRegression(),
+        "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
+        "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
+        "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
+    }
 
-if uploaded_file:
+def train_and_evaluate_models(X_train, X_test, y_train, y_test):
+    models = get_models()
+    results = {}
+    predictions = {}
+
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        r2 = r2_score(y_test, y_pred)
+        results[name] = r2
+        predictions[name] = y_pred
+
+    return results, predictions, models
+
+# ---------- STREAMLIT APP ----------
+
+st.set_page_config(page_title="NYC Taxi Analysis", layout="wide")
+st.title("NYC Green Taxi Trip Data Analysis & ML Modeling")
+
+uploaded_file = st.file_uploader("Upload a dataset (Parquet or CSV)", type=["parquet", "csv"])
+
+if uploaded_file is not None:
     try:
-        data = pd.read_parquet(uploaded_file)
-    except Exception as e:
-        st.error(f"❌ Error loading file: {e}")
-        st.stop()
-
-    # Preprocessing
-    data.drop(columns=['ehail_fee'], errors='ignore', inplace=True)
-    data['trip_duration'] = (data['lpep_dropoff_datetime'] - data['lpep_pickup_datetime']).dt.total_seconds() / 60
-    data['weekday'] = data['lpep_dropoff_datetime'].dt.day_name()
-    data['hourofday'] = data['lpep_dropoff_datetime'].dt.hour
-
-    for col in data.columns:
-        if data[col].dtype == 'object':
-            try:
-                data[col].fillna(data[col].mode()[0], inplace=True)
-            except:
-                pass
+        if uploaded_file.name.endswith('.parquet'):
+            df = pd.read_parquet(uploaded_file)
         else:
-            data[col].fillna(data[col].mean(), inplace=True)
+            df = pd.read_csv(uploaded_file)
 
-    # Label Encoding
-    for col in data.select_dtypes(include='object'):
-        try:
-            le = LabelEncoder()
-            data[col] = le.fit_transform(data[col])
-        except Exception as e:
-            st.warning(f"Encoding error in {col}: {e}")
+        st.subheader("Raw Data Sample")
+        st.dataframe(df.head())
 
-    # ---------------- DATA OVERVIEW ----------------
-    st.header("📊 Data Overview")
-    st.dataframe(data.head())
-    st.write("Shape:", data.shape)
+        if 'ehail_fee' in df.columns:
+            df.drop("ehail_fee", axis=1, inplace=True)
 
-    # ---------------- VISUALIZATIONS ----------------
-    st.header("📈 Visual Insights")
+        df["lpep_dropoff_datetime"] = pd.to_datetime(df["lpep_dropoff_datetime"])
+        df["lpep_pickup_datetime"] = pd.to_datetime(df["lpep_pickup_datetime"])
 
-    # Payment Type Pie
-    try:
-        st.subheader("🧾 Payment Type Distribution")
-        payment_counts = data['payment_type'].value_counts()
-        fig1, ax1 = plt.subplots()
-        ax1.pie(payment_counts, labels=payment_counts.index, autopct='%1.1f%%', startangle=90)
-        ax1.axis('equal')
-        st.pyplot(fig1)
-    except Exception as e:
-        st.warning(f"Pie chart error: {e}")
+        df["trip_duration"] = (df["lpep_dropoff_datetime"] - df["lpep_pickup_datetime"]).dt.total_seconds() / 60
+        df["weekday"] = df["lpep_dropoff_datetime"].dt.dayofweek
+        df["hour"] = df["lpep_dropoff_datetime"].dt.hour
 
-    # Total Amount by Weekday
-    st.subheader("📅 Average Total Amount by Weekday")
-    st.bar_chart(data.groupby('weekday')['total_amount'].mean())
+        df = df[df["trip_duration"].between(1, 120)]
 
-    # Total Amount by Payment Type
-    st.subheader("💳 Average Total Amount by Payment Type")
-    st.bar_chart(data.groupby('payment_type')['total_amount'].mean())
+        cat_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
+        for col in cat_cols:
+            if col in df.columns:
+                df[col] = df[col].fillna(df[col].mode()[0])
 
-    # ---------------- STATISTICAL TESTS ----------------
-    st.header("🧪 Hypothesis Testing")
+        num_cols = df.select_dtypes(include=np.number).columns
+        for col in num_cols:
+            df[col] = df[col].fillna(df[col].median())
 
-    # T-Test
-    try:
-        t1 = data[data['trip_type'] == 1]['total_amount']
-        t2 = data[data['trip_type'] == 2]['total_amount']
-        t_stat, p_val = ttest_ind(t1, t2, nan_policy='omit')
-        st.write(f"**T-Test (Trip Type):** t = {t_stat:.2f}, p = {p_val:.3f}")
-    except Exception as e:
-        st.warning(f"T-test error: {e}")
+        encoder_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'PULocationID', 'DOLocationID']
+        for col in encoder_cols:
+            if col in df.columns:
+                df[col] = LabelEncoder().fit_transform(df[col])
 
-    # ANOVA
-    try:
-        groups = [data[data['weekday'] == day]['total_amount'] for day in data['weekday'].unique()]
-        f_stat, p_val = f_oneway(*groups)
-        st.write(f"**ANOVA (Weekdays):** F = {f_stat:.2f}, p = {p_val:.3f}")
-    except Exception as e:
-        st.warning(f"ANOVA error: {e}")
+        st.subheader("Processed Dataset")
+        st.dataframe(df.head())
 
-    # Chi-Square
-    try:
-        cont_table = pd.crosstab(data['trip_type'], data['payment_type'])
-        chi2, p_chi2, _, _ = chi2_contingency(cont_table)
-        st.write(f"**Chi-Square (Trip Type vs Payment):** χ² = {chi2:.2f}, p = {p_chi2:.3f}")
-    except Exception as e:
-        st.warning(f"Chi-square error: {e}")
-
-    # ---------------- CORRELATION ----------------
-    st.header("🔗 Correlation Heatmap")
-    try:
-        num_cols = ['trip_distance', 'fare_amount', 'extra', 'mta_tax', 'tip_amount',
-                    'tolls_amount', 'improvement_surcharge', 'congestion_surcharge',
-                    'trip_duration', 'passenger_count']
-        corr = data[num_cols].corr()
-        fig, ax = plt.subplots()
-        sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
-        st.pyplot(fig)
-    except Exception as e:
-        st.warning(f"Correlation matrix error: {e}")
-
-    # ---------------- DISTRIBUTION ----------------
-    st.header("📌 Total Fare Distribution")
-    try:
-        fig2, axes = plt.subplots(1, 3, figsize=(15, 5))
-        sns.histplot(data['total_amount'], bins=30, ax=axes[0])
-        axes[0].set_title("Histogram")
-        sns.boxplot(x=data['total_amount'], ax=axes[1])
-        axes[1].set_title("Boxplot")
-        sns.kdeplot(data['total_amount'], shade=True, ax=axes[2])
-        axes[2].set_title("Density Curve")
-        st.pyplot(fig2)
-    except Exception as e:
-        st.warning(f"Distribution plots error: {e}")
-
-    # ---------------- MODELING ----------------
-    st.header("🤖 Fare Prediction with Regression Models")
-    try:
-        X = data.drop(columns=['total_amount', 'lpep_pickup_datetime', 'lpep_dropoff_datetime'], errors='ignore')
-        y = data['total_amount']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-    except Exception as e:
-        st.error(f"Model data prep error: {e}")
-        st.stop()
-
-    def evaluate(model, name):
-        try:
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
-            score = r2_score(y_test, preds)
-            st.write(f"**{name} R² Score:** {score:.3f}")
-            return model
-        except Exception as e:
-            st.warning(f"{name} error: {e}")
-            return None
-
-    linear_model = evaluate(LinearRegression(), "Linear Regression")
-    tree_model = evaluate(DecisionTreeRegressor(), "Decision Tree")
-    rf_model = evaluate(RandomForestRegressor(), "Random Forest")
-    gb_model = evaluate(GradientBoostingRegressor(), "Gradient Boosting")
-
-    # ---------------- PREDICTION ----------------
-    st.header("🔮 Predict Fare for Custom Input")
-    st.write("Enter the input values for prediction:")
-
-    input_values = {}
-    for col in X.columns:
-        if X[col].dtype in ['float64', 'int64']:
-            input_values[col] = st.number_input(f"{col}", value=float(X[col].mean()))
+        features = ['passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
+                    'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
+                    'tip_amount', 'tolls_amount', 'improvement_surcharge',
+                    'total_amount', 'trip_type', 'weekday', 'hour']
+        
+        if not set(features).issubset(df.columns):
+            st.error("Missing required features in dataset")
         else:
-            st.write(f"Skipping {col} (non-numeric)")
+            X = df[features]
+            y = df['trip_duration']
 
-    if st.button("Predict Total Fare"):
-        try:
-            input_df = pd.DataFrame([input_values])
-            for col in X.columns:
-                if col not in input_df.columns:
-                    input_df[col] = X[col].mean()
-            input_df = input_df[X.columns]
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
 
-            pred = linear_model.predict(input_df)[0]
-            st.success(f"💰 Estimated Fare: ${pred:.2f}")
-        except Exception as e:
-            st.error(f"Prediction error: {e}")
+            st.subheader("Regression Model R² Scores")
+            results, predictions, trained_models = train_and_evaluate_models(X_train, X_test, y_train, y_test)
+
+            for name, r2 in results.items():
+                st.write(f"{name} R² score: **{r2:.3f}**")
+
+            st.subheader("Sample Predictions (First 5)")
+            sample_preds = pd.DataFrame({"Actual": y_test.iloc[:5].values})
+            for name, preds in predictions.items():
+                sample_preds[name] = preds[:5]
+            st.dataframe(sample_preds)
+
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
 
 else:
-    st.info("📥 Please upload a `.parquet` file to proceed.")
+    st.info("📁 Please upload a Parquet or CSV file to begin.")
