@@ -183,11 +183,13 @@ if uploaded_file is not None:
 
     if st.button("Predict"):
         if linear_model is not None:
-            input_df = pd.DataFrame([input_data])
-            prediction = linear_model.predict(input_df)[0]
-            st.success(f"Predicted Total Amount: ${prediction:.2f}")
-        else:
-            st.error("Please train the Linear Regression model first.")
+        input_df = pd.DataFrame([input_data])
+        input_df = input_df[linear_model.feature_names_in_]
+        prediction = linear_model.predict(input_df)[0]
+        st.success(f"Predicted Total Amount: ${prediction:.2f}")
+    else:
+        st.error("Please train the Linear Regression model first.")
+
 
 else:
     st.info("Upload a Parquet file to begin analysis.")
