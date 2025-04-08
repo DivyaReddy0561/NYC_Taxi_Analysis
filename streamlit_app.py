@@ -7,44 +7,19 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import r2_score
 
-# ---------- MODEL UTILS ----------
-
-def get_models():
-    return {
-        "Linear Regression": LinearRegression(),
-        "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
-        "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
-        "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
-    }
-
-def train_and_evaluate_models(X_train, X_test, y_train, y_test):
-    models = get_models()
-    results = {}
-    trained_models = {}
-
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        r2 = r2_score(y_test, y_pred)
-        results[name] = r2
-        trained_models[name] = model
-
-    return results, trained_models
-
 # ---------- STREAMLIT APP ----------
-
-st.set_page_config(page_title="NYC Taxi Fare Prediction", layout="wide")
-st.title("🚕 NYC Taxi Fare Prediction App")
+st.set_page_config(page_title="NYC Trip Duration Prediction", layout="wide")
+st.title("🚕 NYC Trip Duration Prediction App")
 
 # Define Features
 features = [
     'passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
     'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
     'tip_amount', 'tolls_amount', 'improvement_surcharge',
-    'trip_type', 'weekday', 'hour'
+    'total_amount', 'trip_type', 'weekday', 'hour'
 ]
 
-# Create dummy training data (simulate 1000 rows)
+# ---------- SIMULATE DATA ----------
 np.random.seed(42)
 dummy_data = pd.DataFrame({
     'passenger_count': np.random.randint(1, 6, 1000),
@@ -64,28 +39,39 @@ dummy_data = pd.DataFrame({
     'hour': np.random.randint(0, 24, 1000),
 })
 
-# Simulate target variable
+# Create total_amount
 dummy_data['total_amount'] = (
     dummy_data['fare_amount'] + dummy_data['extra'] + dummy_data['mta_tax'] +
     dummy_data['tip_amount'] + dummy_data['tolls_amount'] + dummy_data['improvement_surcharge']
 )
 
+# Simulate trip_duration (target variable)
+dummy_data['trip_duration'] = dummy_data['trip_distance'] * np.random.uniform(3, 5, 1000) + np.random.normal(0, 2, 1000)
+
+# ---------- MODELING ----------
 X = dummy_data[features]
-y = dummy_data['total_amount']
+y = dummy_data['trip_duration']
 
-# Split and train
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-results, trained_models = train_and_evaluate_models(X_train, X_test, y_train, y_test)
 
-# ---------- MODEL SELECTION ----------
-st.subheader("📈 Model Selection & Performance")
-selected_model_name = st.selectbox("Select a model for prediction", list(trained_models.keys()))
-selected_model = trained_models[selected_model_name]
-st.markdown(f"*R² Score* for {selected_model_name}: {results[selected_model_name]:.3f}")
+models = {
+    "Linear Regression": LinearRegression(),
+    "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
+    "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
+    "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
+}
 
-# ---------- USER INPUT ----------
-st.subheader("🔢 Input Ride Details")
+trained_models = {}
+st.subheader("📊 Regression Model R² Scores")
+for name, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    r2 = r2_score(y_test, y_pred)
+    trained_models[name] = model
+    st.write(f"**{name}** R² Score: {r2:.3f}")
 
+# ---------- USER PREDICTION ----------
+st.subheader("🛂 Enter Ride Details for Trip Duration Prediction")
 user_input = {}
 for col in features:
     if col in ['passenger_count', 'PULocationID', 'DOLocationID', 'RatecodeID', 'payment_type', 'trip_type', 'weekday', 'hour']:
@@ -94,8 +80,12 @@ for col in features:
         val = st.number_input(f"{col}", value=float(round(X[col].median(), 2)))
     user_input[col] = val
 
-# ---------- PREDICT ----------
-if st.button("Predict Total Fare"):
+# Model selection
+selected_model_name = st.selectbox("Select a model to predict", list(trained_models.keys()))
+selected_model = trained_models[selected_model_name]
+
+# Prediction
+if st.button("🎯 Predict Trip Duration"):
     input_df = pd.DataFrame([user_input])
-    prediction = selected_model.predict(input_df)[0]
-    st.success(f"🎯 Predicted Total Fare Amount: *${prediction:.2f}*")
+    predicted_duration = selected_model.predict(input_df)[0]
+    st.success(f"Predicted Trip Duration: **{predicted_duration:.2f} minutes**")
