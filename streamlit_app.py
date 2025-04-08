@@ -11,8 +11,6 @@ from sklearn.metrics import r2_score
 from sklearn.preprocessing import LabelEncoder
 from scipy.stats import f_oneway, chi2_contingency
 
-st.set_option('deprecation.showPyplotGlobalUse', False)
-
 st.title("NYC Taxi Data Analysis and Fare Prediction")
 
 # Load Data
