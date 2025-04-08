@@ -1,145 +1,107 @@
 # streamlit_app.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import r2_score
 
 # Configure page
 st.set_page_config(page_title="NYC Taxi Analysis", layout="wide")
-st.title("NYC Green Taxi Trip Data Analysis")
+st.title("NYC Green Taxi Trip Data Analysis & ML Modeling")
 
 # File uploader
-uploaded_file = st.file_uploader("Upload Parquet File", type=["parquet"])
+uploaded_file = st.file_uploader("Upload a dataset (Parquet or CSV)", type=["parquet", "csv"])
 
 if uploaded_file is not None:
     try:
         # Load data
-        nycgreen = pd.read_parquet(uploaded_file)
+        if uploaded_file.name.endswith('.parquet'):
+            df = pd.read_parquet(uploaded_file)
+        else:
+            df = pd.read_csv(uploaded_file)
 
-        # Data preprocessing
-        with st.expander("Data Preprocessing Steps", expanded=True):
-            if 'ehail_fee' in nycgreen.columns:
-                nycgreen = nycgreen.drop("ehail_fee", axis=1)
-                st.success("Dropped ehail_fee column")
+        st.subheader("Raw Data Sample")
+        st.dataframe(df.head())
 
-            # Calculate trip duration
-            nycgreen["trip_duration"] = (
-                nycgreen["lpep_dropoff_datetime"] - nycgreen["lpep_pickup_datetime"]
-            ).dt.total_seconds() / 60
-
-            # Extract datetime features
-            nycgreen["weekday"] = nycgreen["lpep_dropoff_datetime"].dt.day_name()
-            nycgreen["hour"] = nycgreen["lpep_dropoff_datetime"].dt.hour
-
-            st.write("### Processed Data Preview")
-            st.dataframe(nycgreen.head())
-
-        # Missing value handling
-        with st.expander("Missing Value Treatment"):
-            objcols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
-            for col in objcols:
-                if col in nycgreen.columns:
-                    mode_val = nycgreen[col].mode()[0]
-                    nycgreen[col] = nycgreen[col].fillna(mode_val)
-
-            numcols = nycgreen.select_dtypes(include=np.number).columns
-            for col in numcols:
-                if nycgreen[col].isnull().sum() > 0:
-                    median_val = nycgreen[col].median()
-                    nycgreen[col] = nycgreen[col].fillna(median_val)
-
-            st.success("Missing values imputed")
-
-        # EDA Section
-        st.header("Exploratory Data Analysis")
-
-        with st.expander("Categorical Variable Analysis"):
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.write("### Weekday Distribution")
-                weekday_counts = nycgreen["weekday"].value_counts()
-                fig, ax = plt.subplots()
-                ax.pie(weekday_counts, labels=weekday_counts.index, autopct='%1.1f%%')
-                st.pyplot(fig)
-
-            with col2:
-                st.write("### Hourly Distribution")
-                hour_counts = nycgreen["hour"].value_counts().sort_index()
-                st.bar_chart(hour_counts)
+        # Drop unneeded columns
+        if 'ehail_fee' in df.columns:
+            df.drop("ehail_fee", axis=1, inplace=True)
 
         # Feature Engineering
-        st.header("Feature Engineering")
+        df["trip_duration"] = (df["lpep_dropoff_datetime"] - df["lpep_pickup_datetime"]).dt.total_seconds() / 60
+        df["weekday"] = df["lpep_dropoff_datetime"].dt.dayofweek
+        df["hour"] = df["lpep_dropoff_datetime"].dt.hour
 
-        with st.expander("Variable Encoding"):
-            high_cardinality = ['PULocationID', 'DOLocationID']
-            le = LabelEncoder()
-            for col in high_cardinality:
-                if col in nycgreen.columns:
-                    nycgreen[col] = le.fit_transform(nycgreen[col])
+        # Drop rows with unreasonable durations
+        df = df[df["trip_duration"].between(1, 120)]
 
-            categorical_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
-            for col in categorical_cols:
-                if col in nycgreen.columns:
-                    nycgreen[col] = nycgreen[col].astype('category').cat.codes
+        # Handle missing values
+        cat_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type']
+        for col in cat_cols:
+            if col in df.columns:
+                df[col] = df[col].fillna(df[col].mode()[0])
 
-            st.write("### Encoded Data Preview")
-            st.dataframe(nycgreen.head())
+        num_cols = df.select_dtypes(include=np.number).columns
+        for col in num_cols:
+            df[col] = df[col].fillna(df[col].median())
 
-        # Final Dataset
-        st.header("Processed Dataset")
-        st.write("### Final Data Structure")
-        st.dataframe(nycgreen.describe())
+        # Encode categorical variables
+        encoder_cols = ['store_and_fwd_flag', 'RatecodeID', 'payment_type', 'trip_type', 'PULocationID', 'DOLocationID']
+        for col in encoder_cols:
+            if col in df.columns:
+                df[col] = LabelEncoder().fit_transform(df[col])
 
-        # ----------------- MODELING SECTION -------------------
-        st.header("Machine Learning: Fare Prediction")
+        st.subheader("Processed Dataset")
+        st.dataframe(df.head())
 
-        with st.expander("Train a Model to Predict Fare", expanded=True):
-            target_col = "fare_amount"
-            if target_col in nycgreen.columns:
-                features = nycgreen.drop(columns=[target_col, 'lpep_pickup_datetime', 'lpep_dropoff_datetime'])
-                target = nycgreen[target_col]
+        # Modeling
+        features = ['passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
+                    'RatecodeID', 'payment_type', 'fare_amount', 'extra', 'mta_tax',
+                    'tip_amount', 'tolls_amount', 'improvement_surcharge',
+                    'total_amount', 'trip_type', 'weekday', 'hour']
+        
+        if not set(features).issubset(df.columns):
+            st.error("Missing required features in dataset")
+        else:
+            X = df[features]
+            y = df['trip_duration']
 
-                # Split data
-                X_train, X_test, y_train, y_test = train_test_split(
-                    features, target, test_size=0.2, random_state=42
-                )
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
 
-                # Random Forest Regressor (tuned to reduce overfitting)
-                rf_model = RandomForestRegressor(
-                    n_estimators=50,
-                    max_depth=5,
-                    min_samples_leaf=10,
-                    random_state=42
-                )
-                rf_model.fit(X_train, y_train)
+            # Initialize models with tuned hyperparameters to reduce overfitting
+            models = {
+                "Linear Regression": LinearRegression(),
+                "Decision Tree": DecisionTreeRegressor(max_depth=5, min_samples_leaf=10, random_state=42),
+                "Random Forest": RandomForestRegressor(n_estimators=50, max_depth=6, min_samples_leaf=10, random_state=42),
+                "Gradient Boosting": GradientBoostingRegressor(n_estimators=50, learning_rate=0.1, max_depth=4, random_state=42)
+            }
 
-                # Evaluation
-                train_r2 = rf_model.score(X_train, y_train)
-                test_r2 = rf_model.score(X_test, y_test)
-                preds = rf_model.predict(X_test)
-                mse = mean_squared_error(y_test, preds)
+            st.subheader("Regression Model R² Scores")
+            for name, model in models.items():
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                r2 = r2_score(y_test, y_pred)
+                st.write(f"**{name} R² score:** {r2:.3f}")
 
-                st.subheader("Model Evaluation")
-                st.write(f"Train R²: {train_r2:.3f}")
-                st.write(f"Test R²: {test_r2:.3f}")
-                st.write(f"Test MSE: {mse:.2f}")
-
-                st.subheader("Sample Predictions")
-                sample_df = pd.DataFrame({
-                    "Actual": y_test[:5].values,
-                    "Predicted": preds[:5]
-                })
-                st.dataframe(sample_df)
-            else:
-                st.warning(f"`{target_col}` column not found. Cannot perform regression.")
+            # Show sample predictions
+            st.subheader("Sample Predictions (First 5)")
+            sample_preds = pd.DataFrame({
+                "Actual": y_test.iloc[:5].values,
+                "Linear Regression": models["Linear Regression"].predict(X_test.iloc[:5]),
+                "Decision Tree": models["Decision Tree"].predict(X_test.iloc[:5]),
+                "Random Forest": models["Random Forest"].predict(X_test.iloc[:5]),
+                "Gradient Boosting": models["Gradient Boosting"].predict(X_test.iloc[:5]),
+            })
+            st.dataframe(sample_preds)
 
     except Exception as e:
-        st.error(f"Error processing data: {str(e)}")
+        st.error(f"Error processing file: {e}")
 
 else:
-    st.info("👆 Please upload a Parquet file to begin analysis")
+    st.info("📁 Please upload a Parquet or CSV file to begin.")
