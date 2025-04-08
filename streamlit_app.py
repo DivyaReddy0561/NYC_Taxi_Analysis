@@ -37,11 +37,14 @@ df = pd.DataFrame({
     'hour': np.random.randint(0, 24, 1000),
 })
 
-# Target: Total amount = sum of various charges
-df['total_amount'] = (
+# Add some noise to total_amount to reduce R² scores slightly
+base_total = (
     df['fare_amount'] + df['extra'] + df['mta_tax'] +
     df['tip_amount'] + df['tolls_amount'] + df['improvement_surcharge']
 )
+
+noise = np.random.normal(loc=0, scale=5, size=len(df))  # adjust scale to control R²
+df['total_amount'] = base_total + noise
 
 X = df[features]
 y = df['total_amount']
