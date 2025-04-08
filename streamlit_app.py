@@ -26,20 +26,15 @@ if uploaded_file is not None:
         st.stop()
 
     # Data Processing
-    # Drop 'ehail_fee'
     try:
         data = data.drop(columns=['ehail_fee'])
     except KeyError:
         st.warning("Column 'ehail_fee' not found. Continuing without dropping.")
 
-    # Calculate trip duration
     data['trip_duration'] = (data['lpep_dropoff_datetime'] - data['lpep_pickup_datetime']).dt.total_seconds() / 60
-
-    # Extract weekday and hour
     data['weekday'] = data['lpep_dropoff_datetime'].dt.day_name()
     data['hourofday'] = data['lpep_dropoff_datetime'].dt.hour
 
-    # Impute missing values
     for column in data.columns:
         if data[column].dtype == 'object':
             try:
@@ -49,7 +44,6 @@ if uploaded_file is not None:
         else:
             data[column].fillna(data[column].mean(), inplace=True)
 
-    # Encoding categorical variables
     for col in data.select_dtypes(include='object'):
         try:
             le = LabelEncoder()
@@ -57,38 +51,28 @@ if uploaded_file is not None:
         except Exception as e:
             st.warning(f"Could not encode {col} due to error: {e}")
 
-    # Data Overview
     st.header("Data Overview")
     st.dataframe(data.head())
 
-    # -------------------------------------------------------------------------
     # Visualizations and Statistical Analysis
-    # -------------------------------------------------------------------------
-
     st.header("Visualizations and Statistical Analysis")
 
-    # Payment Type Pie Chart
     st.subheader("Payment Type Distribution")
     payment_type_counts = data['payment_type'].value_counts()
     fig1, ax1 = plt.subplots()
     ax1.pie(payment_type_counts, labels=payment_type_counts.index, autopct='%1.1f%%', startangle=90)
-    ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    ax1.axis('equal')
     st.pyplot(fig1)
 
-    # Average Total Amount by Weekday
     st.subheader("Average Total Amount by Weekday")
     avg_total_by_weekday = data.groupby('weekday')['total_amount'].mean()
     st.bar_chart(avg_total_by_weekday)
 
-    # Average Total Amount by Payment Type
     st.subheader("Average Total Amount by Payment Type")
     avg_total_by_payment_type = data.groupby('payment_type')['total_amount'].mean()
     st.bar_chart(avg_total_by_payment_type)
 
-    # Hypothesis Testing
     st.subheader("Hypothesis Testing")
-
-    # T-test for Trip Type
     try:
         trip_type_1 = data[data['trip_type'] == 1]['total_amount']
         trip_type_2 = data[data['trip_type'] == 2]['total_amount']
@@ -97,7 +81,6 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error during T-test: {e}")
 
-    # ANOVA for Weekdays
     try:
         weekdays_groups = [data[data['weekday'] == day]['total_amount'] for day in data['weekday'].unique()]
         f_stat, p_value_weekday = f_oneway(*weekdays_groups)
@@ -105,7 +88,6 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error during ANOVA: {e}")
 
-    # Chi-square test for Trip Type and Payment Type
     try:
         contingency_table = pd.crosstab(data['trip_type'], data['payment_type'])
         chi2_stat, p_val_chi2, _, _ = chi2_contingency(contingency_table)
@@ -113,7 +95,6 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error during Chi-square test: {e}")
 
-    # Correlation Matrix
     st.subheader("Correlation Matrix")
     numeric_cols = ['trip_distance', 'fare_amount', 'extra', 'mta_tax', 'tip_amount',
                     'tolls_amount', 'improvement_surcharge', 'congestion_surcharge',
@@ -126,7 +107,6 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error creating correlation matrix: {e}")
 
-    # Histograms, Boxplots, Density Curves of Total Amount
     st.subheader("Total Amount Analysis")
     fig2, axes = plt.subplots(1, 3, figsize=(15, 5))
     sns.histplot(data['total_amount'], bins=30, kde=False, ax=axes[0])
@@ -137,23 +117,16 @@ if uploaded_file is not None:
     axes[2].set_title('Density Curve of Total Amount')
     st.pyplot(fig2)
 
-    # -------------------------------------------------------------------------
     # Regression Models
-    # -------------------------------------------------------------------------
-
     st.header("Regression Models")
-
-    # Data Preparation for Regression
     try:
         X = data.drop(columns=['total_amount', 'lpep_pickup_datetime', 'lpep_dropoff_datetime'], errors='ignore')
         y = data['total_amount']
-
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
     except Exception as e:
         st.error(f"Error preparing data for regression: {e}")
         st.stop()
 
-    # Model Training and Evaluation
     def train_and_evaluate(model, model_name):
         try:
             model.fit(X_train, y_train)
@@ -180,20 +153,15 @@ if uploaded_file is not None:
             input_data[col] = st.number_input(label=col, value=float(X[col].mean()))
         else:
             st.write(f"Skipping {col} as it is not numerical.")
+
     if st.button("Predict"):
-    if linear_model is not None:
-        input_df = pd.DataFrame([input_data])
-
-        # Ensure input_df matches the training feature columns
-        input_df = input_df[linear_model.feature_names_in_]
-
-        prediction = linear_model.predict(input_df)[0]
-        st.success(f"Predicted Total Amount: ${prediction:.2f}")
-    else:
-        st.error("Please train the Linear Regression model first.")
-
-
-
+        if linear_model is not None:
+            input_df = pd.DataFrame([input_data])
+            input_df = input_df[linear_model.feature_names_in_]
+            prediction = linear_model.predict(input_df)[0]
+            st.success(f"Predicted Total Amount: ${prediction:.2f}")
+        else:
+            st.error("Please train the Linear Regression model first.")
 
 else:
     st.info("Upload a Parquet file to begin analysis.")
